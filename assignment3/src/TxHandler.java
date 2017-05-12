@@ -4,17 +4,16 @@ import java.util.Comparator;
 import java.util.LinkedList;
 
 public class TxHandler {
-
     /**
      * Creates a public ledger whose current UTXOPool (collection of unspent transaction outputs) is
      * {@code utxoPool}. This should make a copy of utxoPool by using the UTXOPool(UTXOPool uPool)
      * constructor.
      */
 	
-	private UTXOPool pristineUtxoPool;
+	private UTXOPool myUtxoPool;
 	
     public TxHandler(UTXOPool utxoPool) {
-    	pristineUtxoPool = new UTXOPool(utxoPool);
+    	myUtxoPool = new UTXOPool(utxoPool);
     }
 
     /**
@@ -29,14 +28,13 @@ public class TxHandler {
      */
 
     
-    private boolean isValidAllInputClaimsInPool(Transaction tx,UTXOPool UtxoPool)
-    {
-        	
+    private boolean isValidAllInputClaimsInPool(Transaction tx)
+    {        	
     	// 1 all outputs claimed by {@code tx} are in the current UTXO pool,	
 		for (int index = 0;index < tx.numInputs();index++) {
     		Transaction.Input in = tx.getInput(index);    		
     		UTXO checker = new UTXO(in.prevTxHash, in.outputIndex);
-    		if (!UtxoPool.contains(checker)) {
+    		if (!myUtxoPool.contains(checker)) {
     			// System.err.println("Not valid due to missing in pool");
     			return false;
     		} 
@@ -47,47 +45,51 @@ public class TxHandler {
 
     
     
-    private boolean isValidAllInputClaimsSignatureValid(Transaction tx,UTXOPool UtxoPool) {
+    private boolean isValidAllInputClaimsSignatureValid(Transaction tx) {
         // (2) the signatures on each input of {@code tx} are valid, 
     	for (int index = 0;index < tx.numInputs();index++) {
     		Transaction.Input in = tx.getInput(index);    		
     		UTXO u = new UTXO(in.prevTxHash, in.outputIndex);
-    		Transaction.Output out = UtxoPool.getTxOutput(u);
+    		Transaction.Output out = myUtxoPool.getTxOutput(u);
     			
     		if (out == null) {
     			// System.err.println("Not valid due to failed signature [1]");
     			return false;
     		}
     		
-    		byte message[] = tx.getRawDataToSign(index);
-    		if (!Crypto.verifySignature(out.address, message, in.signature)) {
-    			// System.err.println("Not valid due to failed signature [2]");
-    			return false;
-    		}
+//    		// Switch comments here if you are using the testscripts at: http://bitcoinbook.cs.princeton.edu/    		
+//          RSAKey address = out.address;
+//          if (!address.verifySignature(tx.getRawDataToSign(index), in.signature)) {
+//  			// System.err.println("Not valid due to failed signature [2]");
+//             return false;
+//          }    		
+  		
+	  		byte message[] = tx.getRawDataToSign(index);
+	  		if (!Crypto.verifySignature(out.address, message, in.signature)) {
+	  			// System.err.println("Not valid due to failed signature [2]");
+	  			return false;
+	    	}
     	}
     	return true;
     	
     }
 
-    private boolean isValidAllInputClaimsNoDoubleSpend(Transaction tx,UTXOPool UtxoPool) {
+    private boolean isValidAllInputClaimsNoDoubleSpend(Transaction tx) {
     	// (3) no UTXO is claimed multiple times by {@code tx},
     	UTXOPool spentPool = new UTXOPool();
-//    	UTXOPool tmpPool = new UTXOPool(UtxoPool);
     	for (int index = 0;index < tx.numInputs();index++) {
     		Transaction.Input in = tx.getInput(index);    		
     		UTXO checker = new UTXO(in.prevTxHash, in.outputIndex);
-    		if (!UtxoPool.contains(checker)) {
-    			return false;  // Safe guard, should be there
-    		} else {
-    			if (spentPool.contains(checker)) {
-        			return false;  // Double spend
-    			} else {
-    				spentPool.addUTXO(checker,null);    				
-    			}
-    		}
+			if (spentPool.contains(checker)) {
+    			// System.err.println("Not valid due to double spend [1]");
+    			return false;  // Double spend
+			} else {
+				spentPool.addUTXO(checker,null);    				
+			}
     	}
     	return true;
     }
+    
     
     
     private boolean isValidAllOutputSpendsNonNegative(Transaction tx) {
@@ -113,14 +115,13 @@ public class TxHandler {
     	return retVal;
 	}
 
-    
-    private double getInputClaims(Transaction tx,UTXOPool UtxoPool)
+    private double getInputClaims(Transaction tx)
     {
     	double retValue = 0.0;
     	for (int i = 0;i < tx.numInputs();i++) {
     		Transaction.Input in = tx.getInput(i);
     		UTXO utxo = new UTXO(in.prevTxHash,in.outputIndex);
-    		Transaction.Output out = UtxoPool.getTxOutput(utxo);
+    		Transaction.Output out = myUtxoPool.getTxOutput(utxo);
     		if (out != null) {
     			retValue += out.value;
     		}
@@ -129,38 +130,31 @@ public class TxHandler {
     	return retValue;    	
     }
     
-    private double getNetInputValue(Transaction tx,UTXOPool UtxoPool) {
-        return getInputClaims(tx,UtxoPool) - getOutputSpends(tx);    	
+    private double getNetInputValue(Transaction tx) {
+        return getInputClaims(tx) - getOutputSpends(tx);    	
     }
-    
-    
-    
-    private boolean isValidAllInputClaimsLargerEqualThanOutputSpends(Transaction tx, UTXOPool UtxoPool) {
+        
+    private boolean isValidAllInputClaimsLargerEqualThanOutputSpends(Transaction tx) {
         //  (5) the sum of {@code tx}s input values is greater than or equal to the sum of its output
-    	double net = getNetInputValue(tx,UtxoPool);
-   	
+
+    	double net = getNetInputValue(tx);   	
     	if (net < 0.0) {
 			// System.err.println("Not valid due to out > in");
     		return false;    		
     	}
     	return true;
     }
-    public boolean isValidTx(Transaction tx) {
-    	// Strictly not necessary since pool is not changed
-    	UTXOPool tmpPool = new UTXOPool(pristineUtxoPool);
-    	return isValidTx(tx, tmpPool);
-    }
     
-    private boolean isValidTx(Transaction tx,UTXOPool utxoPool) {
-    	if (!isValidAllInputClaimsInPool(tx,utxoPool)) {
+    public boolean isValidTx(Transaction tx) {
+    	if (!isValidAllInputClaimsInPool(tx)) {
     		return false;
     	}    	    
 
-    	if (!isValidAllInputClaimsSignatureValid(tx,utxoPool)) {
+    	if (!isValidAllInputClaimsSignatureValid(tx)) {
     		return false;
     	}
     	
-        if (!isValidAllInputClaimsNoDoubleSpend(tx,utxoPool)) {
+        if (!isValidAllInputClaimsNoDoubleSpend(tx)) {
         	return false;
         }
     	
@@ -168,7 +162,7 @@ public class TxHandler {
         	return false;
         }
         
-        if (!isValidAllInputClaimsLargerEqualThanOutputSpends(tx,utxoPool)) {
+        if (!isValidAllInputClaimsLargerEqualThanOutputSpends(tx)) {
         	return false;
         }
 
@@ -181,109 +175,77 @@ public class TxHandler {
      * updating the current UTXO pool as appropriate.
      * @throws Exception 
      */
-
-
-    private void getTxList(LinkedList<Transaction> remainingTx,Transaction foundTx,LinkedList<Transaction> returnedTx,UTXOPool utxoPool,LinkedList<LinkedList<Transaction>> candidates) 
-    {
-    			
-   		if (foundTx != null) {
-			doTransaction(foundTx,utxoPool);
-       		returnedTx.add(foundTx);
-       		remainingTx.remove(foundTx);   			
-   		}
-    	
-   		boolean foundSome = false;
-   		for (Transaction tx:remainingTx) {
-   			if (isValidTx(tx, utxoPool)) {
-   				LinkedList<Transaction> newRemainingTx = new LinkedList<Transaction>(remainingTx);
-   				LinkedList<Transaction> newReturnedTx = new LinkedList<Transaction>(returnedTx);
-   				UTXOPool newUtxoPool = new UTXOPool(utxoPool);
-   				getTxList(newRemainingTx,tx,newReturnedTx,newUtxoPool,candidates);   				
-   				foundSome = true;
-   				break;  // Stop loop after first find
-   			}   		
-    	}
-        	   	
-   		if (!foundSome) {
-   			candidates.add(returnedTx);
-   		}
-    }
-    
     
     public Transaction[] handleTxs(Transaction[] possibleTxs)  {
 
     	
-    	// Remove the "premature" testing, all in big loop?
-    	// Stop when no adding is possible anymore?
-    	
-   		
    		LinkedList<Transaction> returnedTx = new LinkedList<Transaction>();
     	LinkedList<Transaction> remainingTx = new LinkedList<Transaction>();
     	// #0 Just copy
     	for (int i = 0;i < possibleTxs.length;i++) {
 			remainingTx.add(possibleTxs[i]);
     	}
-
-    	    	
-    	LinkedList<LinkedList<Transaction>> candidates = new LinkedList<LinkedList<Transaction>>();
-   		UTXOPool tmpPool = new UTXOPool(pristineUtxoPool);
-
-    	getTxList(remainingTx,null,returnedTx,tmpPool,candidates);
-    	    	
-    	returnedTx = candidates.getFirst();
     	
+    	    	
+    	// try all items in "remaining" list until nothing more can be added.
+   		boolean foundSome = true;
 
-    	// Make output buffer
+    	while (foundSome) {
+    		foundSome = false;
+       		LinkedList<Transaction> foundNowTx= new LinkedList<Transaction>();
+       		for (Transaction tx:remainingTx) {
+       			if (isValidTx(tx)) {
+       				foundSome = true;
+       	    		doTransaction(tx, myUtxoPool);
+       	    		foundNowTx.add(tx);
+       			}
+       		}
+       		for (Transaction tx:foundNowTx) {
+       			remainingTx.remove(tx);
+       			returnedTx.add(tx);
+       		}
+
+    	}
+        	   	    	
     	int outerIndex = 0;
     	Transaction[] retVal = new Transaction[returnedTx.size()];
     	for (Transaction tx:returnedTx) {
-    		doTransaction(tx, pristineUtxoPool);
     		retVal[outerIndex++] = tx;
     	}
     	    	    	
     	return retVal;
-    	
     }
 
-
-    
 	private void doTransaction(Transaction tx,UTXOPool UtxoPool) {
 		addOutputsToUTXOPool(tx, UtxoPool);
 		removeInputsFromUTX0Pool(tx, UtxoPool);
 	}
-
-	
-	public UTXOPool getUTXOPool(){
-		return pristineUtxoPool;
-	}
-	
-    
-    // 
-    // This would be like putting back stuff to get coins
+   
 	private void removeInputsFromUTX0Pool(Transaction tx,UTXOPool UtxoPool) {
 		for (int i = 0;i < tx.numInputs();i++) {
 			Transaction.Input in = tx.getInput(i);
 			UTXO utxo = new UTXO(in.prevTxHash,in.outputIndex);
-			if (!UtxoPool.contains(utxo)) {
-				// Safeguard, make it crash
-				UtxoPool = null;
+			if (!myUtxoPool.contains(utxo)) {
+				throw new AssertionError("Unspent transaction not present in pool");
 			}
 			UtxoPool.removeUTXO(utxo);
 		}
 	}
 
-    // This would be like generating coins 
 	private void addOutputsToUTXOPool(Transaction tx,UTXOPool UtxoPool) {
     	for (int i = 0;i < tx.numOutputs();i++) {
     		Transaction.Output out = tx.getOutput(i);
     		UTXO utxo = new UTXO(tx.getHash(), i);
-			if (UtxoPool.contains(utxo)) {
-				// Safeguard, make it crash
-				UtxoPool = null;				
+			if (myUtxoPool.contains(utxo)) {
+				throw new AssertionError("Unspent transaction already present in pool");
 			}
 			UtxoPool.addUTXO(utxo, out);
     	}
 	}
     
+	public UTXOPool getUTXOPool(){
+		return myUtxoPool;
+	}
+	
     
 }
